@@ -50,5 +50,16 @@
       }
    },
    "release_status" : "unstable",
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/LiosK/GnuCash-Branch/issues"
+      },
+      "homepage" : "https://github.com/LiosK/GnuCash-Branch",
+      "repository" : {
+         "type" : "git",
+         "url" : "git://github.com/LiosK/GnuCash-Branch.git",
+         "web" : "https://github.com/LiosK/GnuCash-Branch"
+      }
+   },
    "version" : "v0.0.1"
 }

@@ -37,8 +37,8 @@ sub load_tsv {
         warn "Invalid currency: $_" if $crncy !~ /^[A-Z]{3}$/;
         $hash{$crncy} = {} if !exists $hash{$crncy};
 
-        if ($date =~ /^(\d{4})[-\/](\d\d?)[-\/](\d\d?)$/) {
-            my $epoch = timegm(0, 0, 0, $3, $2 - 1, $1);
+        if ($date =~ /^(\d{4})([-\/])(\d\d?)\2(\d\d?)$/) {
+            my $epoch = timegm(0, 0, 0, $4, $3 - 1, $1);
             if (exists $hash{$crncy}->{$epoch}) {
                 warn "Skipped duplicated date: $_";
             } else {
