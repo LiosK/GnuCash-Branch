@@ -37,60 +37,46 @@ sub main {
     my %conf = get_config();
     die 'Give a gnucash xml file as argument' if (!$ARGV[0]);
     my $book = GnuCash::Branch::Book::XML->new($ARGV[0]);
-    my $accounts = $book->get_accounts;
+    my $transactions = $book->list_transactions(
+        from      => ($conf{'date-from'}       ne '') ? $conf{'date-from'}         : undef,
+        to        => ($conf{'date-to'}         ne '') ? $conf{'date-to'}           : undef,
+        skip_desc => ($conf{'closing-entries'} ne '') ? $conf{'closing-entries'}   : undef,
+    );
 
     my $fx_rates = GnuCash::Branch::FxRates->load_tsv($conf{'fx-file'});
     $fx_rates->set_fraction($conf{'pr-crncy'});
 
     # walk through transactions
     my %qif = ();
-    for my $x (@{$book->list_transactions}) {
-        my $trn_date = Time::Piece->strptime(
-            substr($x->findvalue('trn:date-posted/ts:date'), 0, 10), '%Y-%m-%d');
-        my $trn_memo  = $x->findvalue('trn:description');
-        my $trn_crncy = $x->findvalue('trn:currency/cmdty:id');
-        die 'Assert currency for transaction measurement' if $x->findvalue('trn:currency/cmdty:space') ne 'ISO4217';
-
-        # grep
-        next if $conf{'date-from'} && ($trn_date < $conf{'date-from'});
-        next if $conf{'date-to'}   && ($trn_date > $conf{'date-to'}); # XXX
-        next if $conf{'closing-entries'} && ($trn_memo eq $conf{'closing-entries'});
-
+    for my $trn (@$transactions) {
         # collect splits by currency
         my %splits = ();
-        for my $y ($x->getElementsByTagName('trn:split')) {
-            my $sp_act   = $y->findvalue('split:account');
-            my $sp_qty   = $y->findvalue('split:quantity');
-            my $sp_value = $y->findvalue('split:value');
-            my $sp_memo  = $y->findvalue('split:memo');
-
+        for my $sp ($trn->splits) {
             # set up in accordance with account types
-            die 'Assert account exists' if !exists $accounts->{$sp_act};
-            my $act = $accounts->{$sp_act};
+            my $act = $sp->account;
             my $sp_crncy  = $act->cmdty_id;
             my $src_crncy = $sp_crncy;
-            my $src_value = $sp_qty;
+            my $src_value = $sp->qty;
             if (!$act->is_currency) {
-                next if $act->is_template;
                 $sp_crncy  = 'Commodity';
-                $src_crncy = $trn_crncy;
-                $src_value = $sp_value;
+                $src_crncy = $sp->val_crncy;
+                $src_value = $sp->value;
             } elsif ($act->is_pl) {
                 $sp_crncy  = $conf{'pr-crncy'};
             }
 
             # translate foreign currency
-            $sp_value = eval $src_value;
+            my $sp_value = $src_value;
             if ($sp_crncy ne $src_crncy) {
-                $sp_value = $fx_rates->convert($sp_value, $src_crncy, $trn_date->epoch);
-                die $trn_date->ymd . " $src_crncy rate not found" if !defined $sp_value;
+                $sp_value = $fx_rates->convert($sp_value, $src_crncy, $trn->date->epoch);
+                die $trn->date->ymd . " $src_crncy rate not found" if !defined $sp_value;
             }
 
             $splits{$sp_crncy} = [] if !exists $splits{$sp_crncy};
             push $splits{$sp_crncy}, {
                 act => $act,
-                memo => $sp_memo,
-                qty => eval $sp_qty,
+                memo => $sp->memo,
+                qty => $sp->qty,
                 value => $sp_value,
             };
         }
@@ -105,14 +91,14 @@ sub main {
                     push $qif{$y}, sprintf(
                         "!Account\nN%s\n^\n!Type:Invst\nD%s\nN%sX\nY%s\nQ%s\nT%s\nL%s:%s\nM%s\n^\n",
                         $z->{'act'}->parent->path,
-                        $trn_date->ymd('/'),
+                        $trn->date->ymd('/'),
                         ($z->{'qty'} > 0) ? 'Buy' : 'Sell',
                         $z->{'act'}->name,
                         abs($z->{'qty'}),
                         abs($z->{'value'}),
                         $conf{'transfer-account'},
                         $conf{'pr-crncy'},
-                        $trn_memo,
+                        $trn->description,
                     );
                 }
             } else {
@@ -130,8 +116,8 @@ sub main {
 
                 push $qif{$y}, sprintf(
                     "!Type:Cash\nD%s\nM%s\nT%s\n%s^\n",
-                    $trn_date->ymd('/'),
-                    $trn_memo,
+                    $trn->date->ymd('/'),
+                    $trn->description,
                     $balance,
                     $txt,
                 );

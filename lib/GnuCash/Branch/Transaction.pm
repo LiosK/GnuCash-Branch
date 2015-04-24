@@ -40,7 +40,7 @@ sub add_split {
 
 sub splits {
     my $self = shift;
-    return $self->{'_splits'};
+    return wantarray ? @{$self->{'_splits'}} : $self->{'_splits'};
 }
 
 1;

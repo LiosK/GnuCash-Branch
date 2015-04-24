@@ -21,7 +21,8 @@ sub new {
 
 sub get_accounts {
     my $self = shift;
-    return $self->{'_account_table'} || $self->_build_account_table;
+    $self->{'_account_table'} ||= $self->_build_account_table;
+    return wantarray ? %{$self->{'_account_table'}} : $self->{'_account_table'};
 }
 
 sub _build_account_table {
@@ -48,9 +49,6 @@ sub _build_account_table {
 sub list_transactions {
     my $self = shift;
     my %args = (from => undef, to => undef, skip_desc => undef, @_);
-
-    # TODO
-    return \@{$self->{'_dom'}->findnodes('//gnc:book/gnc:transaction')};
 
     my $transactions = [];
     my $accounts = $self->get_accounts;
@@ -100,7 +98,7 @@ sub list_transactions {
         push $transactions, $trn;
     }
 
-    return $transactions;
+    return wantarray ? @$transactions : $transactions;
 }
 
 1;
