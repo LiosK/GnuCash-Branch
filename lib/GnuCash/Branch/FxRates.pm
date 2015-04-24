@@ -68,9 +68,9 @@ sub get_latest {
     return $self->{'_memo'}{$crncy, $date} if exists $self->{'_memo'}{$crncy, $date};
 
     my $i = @$dates - 1;
-    $i -= 1024 while ($i > 1023) && ($date < $dates->[$i - 1023]);
-    $i -= 32   while ($i > 31)   && ($date < $dates->[$i - 31]);
-    --$i       while ($i > 0)    && ($date < $dates->[$i]);
+    $i -= 1024 while $i > 1023 && $date < $dates->[$i - 1023];
+    $i -= 32   while $i > 31   && $date < $dates->[$i - 31];
+    --$i       while $i > 0    && $date < $dates->[$i];
 
     return $self->{'_memo'}{$crncy, $date} = $self->{'_prices'}{$crncy}[$i];
 }

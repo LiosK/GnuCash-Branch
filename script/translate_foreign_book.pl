@@ -6,7 +6,7 @@ use warnings;
 use Getopt::Long;
 use Time::Piece;
 
-use GnuCash::Branch::Book::Xml;
+use GnuCash::Branch::Book::XML;
 use GnuCash::Branch::FxRates;
 
 =head1 NAME
@@ -36,7 +36,7 @@ main();
 sub main {
     my %conf = get_config();
     die 'Give a gnucash xml file as argument' if (!$ARGV[0]);
-    my $book = GnuCash::Branch::Book::Xml->new($ARGV[0]);
+    my $book = GnuCash::Branch::Book::XML->new($ARGV[0]);
     my $accounts = $book->get_accounts;
 
     my $fx_rates = GnuCash::Branch::FxRates->load_tsv($conf{'fx-file'});

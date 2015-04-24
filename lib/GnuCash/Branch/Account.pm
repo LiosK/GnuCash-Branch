@@ -22,7 +22,7 @@ sub new {
 
     my $self = { _fs => {}, _parent => undef };
     for my $k (keys %fields) {
-        die "Argument error: $k" if !exists $args{$k};
+        die "Argument error: $k" if !defined $args{$k};
         $self->{'_fs'}{$k} = $args{$k};
     }
 
@@ -63,7 +63,7 @@ sub is_toplevel {
 sub is_pl {
     my $self = shift;
     my $type = $self->{'_fs'}{'type'};
-    return ($type eq 'INCOME') || ($type eq 'EXPENSE');
+    return $type eq 'INCOME' || $type eq 'EXPENSE';
 }
 
 sub is_currency {
