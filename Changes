@@ -1,6 +1,9 @@
 Revision history for Perl extension GnuCash-Branch
 
-{{$NEXT}}
+v0.0.2 2015-04-25
 
-    - original version
+    - Refactored experimental release.
 
+v0.0.1 2015-04-21
+
+    - Initial commit with minimal functionality.

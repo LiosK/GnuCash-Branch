@@ -5,8 +5,8 @@ use strict;
 use warnings;
 use Getopt::Long;
 use Time::Piece;
-use XML::LibXML;
 
+use GnuCash::Branch::Book::XML;
 use GnuCash::Branch::FxRates;
 
 =head1 NAME
@@ -36,61 +36,47 @@ main();
 sub main {
     my %conf = get_config();
     die 'Give a gnucash xml file as argument' if (!$ARGV[0]);
-    my $doc = XML::LibXML->load_xml(location => $ARGV[0]);
+    my $book = GnuCash::Branch::Book::XML->new($ARGV[0]);
+    my $transactions = $book->list_transactions(
+        from      => ($conf{'date-from'}       ne '') ? $conf{'date-from'}         : undef,
+        to        => ($conf{'date-to'}         ne '') ? $conf{'date-to'}           : undef,
+        skip_desc => ($conf{'closing-entries'} ne '') ? $conf{'closing-entries'}   : undef,
+    );
 
-    my %accounts = build_account_list($doc);
     my $fx_rates = GnuCash::Branch::FxRates->load_tsv($conf{'fx-file'});
+    $fx_rates->set_fraction($conf{'pr-crncy'});
 
     # walk through transactions
     my %qif = ();
-    for my $x ($doc->getElementsByTagName('gnc:transaction')) {
-        my $trn_date = Time::Piece->strptime(
-            substr($x->findvalue('trn:date-posted/ts:date'), 0, 10), '%Y-%m-%d');
-        my $trn_memo  = $x->findvalue('trn:description');
-        my $trn_crncy = $x->findvalue('trn:currency/cmdty:id');
-        die 'Assert currency for transaction measurement' if $x->findvalue('trn:currency/cmdty:space') ne 'ISO4217';
-
-        # grep
-        next if $conf{'date-from'} && ($trn_date < $conf{'date-from'});
-        next if $conf{'date-to'}   && ($trn_date > $conf{'date-to'}); # XXX
-        next if $conf{'closing-entries'} && ($trn_memo eq $conf{'closing-entries'});
-
+    for my $trn (@$transactions) {
         # collect splits by currency
         my %splits = ();
-        for my $y ($x->getElementsByTagName('trn:split')) {
-            my $sp_act   = $y->findvalue('split:account');
-            my $sp_qty   = $y->findvalue('split:quantity');
-            my $sp_value = $y->findvalue('split:value');
-            my $sp_memo  = $y->findvalue('split:memo');
-
+        for my $sp ($trn->splits) {
             # set up in accordance with account types
-            die 'Assert account exists' if !exists $accounts{$sp_act};
-            my $act = $accounts{$sp_act};
-            my $sp_crncy  = $act->{'cmdty_id'};
+            my $act = $sp->account;
+            my $sp_crncy  = $act->cmdty_id;
             my $src_crncy = $sp_crncy;
-            my $src_value = $sp_qty;
-            if (!$act->{'is_currency'}) {
-                next if $act->{'is_template'};
+            my $src_value = $sp->qty;
+            if (!$act->is_currency) {
                 $sp_crncy  = 'Commodity';
-                $src_crncy = $trn_crncy;
-                $src_value = $sp_value;
-            } elsif ($act->{'is_pl'}) {
+                $src_crncy = $sp->val_crncy;
+                $src_value = $sp->value;
+            } elsif ($act->is_pl) {
                 $sp_crncy  = $conf{'pr-crncy'};
             }
 
             # translate foreign currency
-            $sp_value = eval $src_value;
+            my $sp_value = $src_value;
             if ($sp_crncy ne $src_crncy) {
-                my $fx = $fx_rates->get_latest($src_crncy, $trn_date->epoch);
-                die $trn_date->ymd . " $src_crncy rate not found" if !defined $fx;
-                $sp_value = sprintf "%.$conf{'pr-crncy-frac'}f", $sp_value * $fx;
+                $sp_value = $fx_rates->convert($sp_value, $src_crncy, $trn->date->epoch);
+                die $trn->date->ymd . " $src_crncy rate not found" if !defined $sp_value;
             }
 
             $splits{$sp_crncy} = [] if !exists $splits{$sp_crncy};
             push $splits{$sp_crncy}, {
-                act => $act->{'path'},
-                memo => $sp_memo,
-                qty => eval $sp_qty,
+                act => $act,
+                memo => $sp->memo,
+                qty => $sp->qty,
                 value => $sp_value,
             };
         }
@@ -101,19 +87,18 @@ sub main {
                 $qif{$y} = [] if !exists $qif{$y};
                 my $txt = '';
                 for my $z (@{$splits{$y}}) {
-                    my $pos = rindex $z->{'act'}, ':';
-                    die 'Assert investment account has a parent' if $pos < 0;
+                    die 'Assert investment account has a parent' if $z->{'act'}->is_toplevel;
                     push $qif{$y}, sprintf(
                         "!Account\nN%s\n^\n!Type:Invst\nD%s\nN%sX\nY%s\nQ%s\nT%s\nL%s:%s\nM%s\n^\n",
-                        substr($z->{'act'}, 0, $pos),
-                        $trn_date->ymd('/'),
+                        $z->{'act'}->parent->path,
+                        $trn->date->ymd('/'),
                         ($z->{'qty'} > 0) ? 'Buy' : 'Sell',
-                        substr($z->{'act'}, $pos + 1),
+                        $z->{'act'}->name,
                         abs($z->{'qty'}),
                         abs($z->{'value'}),
                         $conf{'transfer-account'},
                         $conf{'pr-crncy'},
-                        $trn_memo,
+                        $trn->description,
                     );
                 }
             } else {
@@ -125,14 +110,14 @@ sub main {
 
                 my ($txt, $balance) = ('', 0);
                 for my $z (@{$splits{$y}}) {
-                    $txt .= sprintf "S%s\n\$%s\nE%s\n", $z->{'act'}, $z->{'value'}, $z->{'memo'};
+                    $txt .= sprintf "S%s\n\$%s\nE%s\n", $z->{'act'}->path, $z->{'value'}, $z->{'memo'};
                     $balance -= $z->{'value'};
                 }
 
                 push $qif{$y}, sprintf(
                     "!Type:Cash\nD%s\nM%s\nT%s\n%s^\n",
-                    $trn_date->ymd('/'),
-                    $trn_memo,
+                    $trn->date->ymd('/'),
+                    $trn->description,
                     $balance,
                     $txt,
                 );
@@ -175,45 +160,5 @@ sub get_config {
     $conf{'date-from'} = Time::Piece->strptime($conf{'date-from'}, "%Y-%m-%d")->epoch;
     $conf{'date-to'}   = Time::Piece->strptime($conf{'date-to'},   "%Y-%m-%d")->epoch;
 
-    $conf{'pr-crncy-frac'} = {
-        BHD => 3, BIF => 0, BYR => 0, CLF => 4, CLP => 0, DJF => 0, GNF => 0,
-        IQD => 3, ISK => 0, JOD => 3, JPY => 0, KMF => 0, KRW => 0, KWD => 3,
-        LYD => 3, OMR => 3, PYG => 0, RWF => 0, TND => 3, UGX => 0, UYI => 0,
-        VND => 0, VUV => 0, XAF => 0, XOF => 0, XPF => 0,
-    }->{$conf{'pr-crncy'}} || 2; # XXX
-
     return wantarray ? %conf : \%conf;
-}
-
-
-# Build the list of accounts from a GnuCash XML.
-sub build_account_list {
-    my $doc = shift;
-    my %accounts = ();
-    for my $e ($doc->getElementsByTagName('gnc:account')) {
-        my $act = {
-            name        => $e->findvalue('act:name'),
-            type        => $e->findvalue('act:type'),
-            parent      => $e->findvalue('act:parent'),
-            cmdty_space => $e->findvalue('act:commodity/cmdty:space'),
-            cmdty_id    => $e->findvalue('act:commodity/cmdty:id'),
-            path        => '',
-        };
-
-        if ($act->{'parent'} ne '') {
-            die 'Assert parent account to appear first' if !exists $accounts{$act->{'parent'}};
-            $act->{'path'} = $accounts{$act->{'parent'}}->{'path'};
-            $act->{'path'} .= (($act->{'path'} eq '') ? '' : ':') . $act->{'name'};
-        }
-
-        $act->{'is_pl'} = ($act->{'type'} eq 'INCOME') || ($act->{'type'} eq 'EXPENSE');
-        $act->{'is_currency'} = ($act->{'cmdty_space'} eq 'ISO4217');
-        $act->{'is_template'} = ($act->{'cmdty_space'} eq 'template');
-
-        my $id = $e->findvalue('act:id');
-        die 'Assert unique account IDs' if exists $accounts{$id};
-        $accounts{$id} = $act;
-    }
-
-    return wantarray ? %accounts : \%accounts;
 }
