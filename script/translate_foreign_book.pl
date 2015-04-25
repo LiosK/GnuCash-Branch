@@ -60,7 +60,7 @@ sub main {
             if (!$act->is_currency) {
                 $sp_crncy = 'Commodity_' . $trn->currency; # TODO
                 $sp_value = $sp->value;
-            } elsif ($act->is_pl) {
+            } elsif ($act->is_pl && $sp_crncy ne $conf{'pr-crncy'}) {
                 $sp_value = $fx_rates->convert($sp_value, $sp_crncy, $trn->date->epoch);
                 die $trn->date->ymd . " $sp_crncy rate not found" if !defined $sp_value;
                 $sp_crncy = $conf{'pr-crncy'};
