@@ -43,7 +43,7 @@ sub load_tsv {
         warn "Invalid currency: $_" if $crncy !~ /^[A-Z]{3}$/;
         $hash->{$crncy} = {} if !exists $hash->{$crncy};
 
-        if ($date =~ /^(\d{4})([-\/])(\d\d?)\2(\d\d?)$/) {
+        if ($date =~ /^(\d{4})([-\/\.])(\d\d?)\2(\d\d?)$/) {
             my $epoch = timegm(0, 0, 0, $4, $3 - 1, $1);
             if (exists $hash->{$crncy}{$epoch}) {
                 warn "Skipped duplicated date: $_";
@@ -76,12 +76,10 @@ sub get_latest {
 }
 
 my %fractions = (
-    0   => 0, 1   => 1, 2   => 2, 3   => 3, 4   => 4, 5   => 5, 6   => 6,
-    7   => 7, 8   => 8, 9   => 9,
-    BHD => 3, BIF => 0, BYR => 0, CLF => 4, CLP => 0, DJF => 0, GNF => 0,
-    IQD => 3, ISK => 0, JOD => 3, JPY => 0, KMF => 0, KRW => 0, KWD => 3,
-    LYD => 3, OMR => 3, PYG => 0, RWF => 0, TND => 3, UGX => 0, UYI => 0,
-    VND => 0, VUV => 0, XAF => 0, XOF => 0, XPF => 0,
+    0   => 0, 1   => 1, 2   => 2, 3   => 3, 4   => 4, 5   => 5, 6   => 6, 7   => 7, 8   => 8,
+    BHD => 3, BIF => 0, BYR => 0, CLF => 4, CLP => 0, DJF => 0, GNF => 0, IQD => 3, ISK => 0,
+    JOD => 3, JPY => 0, KMF => 0, KRW => 0, KWD => 3, LYD => 3, OMR => 3, PYG => 0, RWF => 0,
+    TND => 3, UGX => 0, UYI => 0, VND => 0, VUV => 0, XAF => 0, XOF => 0, XPF => 0,
 );
 
 sub set_fraction {
