@@ -53,24 +53,17 @@ sub main {
         # collect splits by currency
         my %splits = ();
         for my $sp ($trn->splits) {
-            # set up in accordance with account types
-            my $act = $sp->account;
-            my $sp_crncy  = $act->cmdty_id;
-            my $src_crncy = $sp_crncy;
-            my $src_value = $sp->qty;
-            if (!$act->is_currency) {
-                $sp_crncy  = 'Commodity';
-                $src_crncy = $sp->val_crncy;
-                $src_value = $sp->value;
-            } elsif ($act->is_pl) {
-                $sp_crncy  = $conf{'pr-crncy'};
-            }
-
             # translate foreign currency
-            my $sp_value = $src_value;
-            if ($sp_crncy ne $src_crncy) {
-                $sp_value = $fx_rates->convert($sp_value, $src_crncy, $trn->date->epoch);
-                die $trn->date->ymd . " $src_crncy rate not found" if !defined $sp_value;
+            my $act = $sp->account;
+            my $sp_crncy = $act->cmdty_id;
+            my $sp_value = $sp->qty;
+            if (!$act->is_currency) {
+                $sp_crncy = 'Commodity_' . $trn->currency; # TODO
+                $sp_value = $sp->value;
+            } elsif ($act->is_pl) {
+                $sp_value = $fx_rates->convert($sp_value, $sp_crncy, $trn->date->epoch);
+                die $trn->date->ymd . " $sp_crncy rate not found" if !defined $sp_value;
+                $sp_crncy = $conf{'pr-crncy'};
             }
 
             $splits{$sp_crncy} = [] if !exists $splits{$sp_crncy};
@@ -84,7 +77,7 @@ sub main {
 
         # generate currency-by-currency qif
         for my $y (keys %splits) {
-            if ($y eq 'Commodity') {
+            if ($y =~ /^Commodity_(.+)$/) {
                 $qif{$y} = GnuCash::Branch::QIF->new if !exists $qif{$y};
                 for my $z (@{$splits{$y}}) {
                     die 'Assert investment account has a parent' if $z->{'act'}->is_toplevel;
@@ -95,7 +88,7 @@ sub main {
                         security => $z->{'act'}->name,
                         qty      => abs($z->{'qty'}),
                         memo     => $trn->description,
-                        transfer => $conf{'transfer-account'} . ':' . $conf{'pr-crncy'},
+                        transfer => '[' . $conf{'transfer-account'} . ':' . $1 . ']',
                         amount   => abs($z->{'value'}),
                     );
                 }

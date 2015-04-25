@@ -13,7 +13,6 @@ my %fields = (
     action    => undef,
     st_rec    => undef,
     id        => undef,
-    val_crncy => undef,
 );
 
 sub new {

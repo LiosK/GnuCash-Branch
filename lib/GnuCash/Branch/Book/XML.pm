@@ -90,7 +90,6 @@ sub list_transactions {
                     action    => $y->findvalue('split:action'),
                     st_rec    => $y->findvalue('split:reconciled-state'),
                     id        => $y->findvalue('split:id'),
-                    val_crncy => $trn->currency,
                 )
             );
         }
