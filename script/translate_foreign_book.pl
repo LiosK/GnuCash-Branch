@@ -132,7 +132,7 @@ sub get_config {
         'fx-file' => '',
         'output-prefix' => './',
         'pr-crncy' => 'USD',
-        'transfer-account' => 'Equity:Translation Adjustments',
+        'transfer-account' => 'Equity:Transfer',
         'closing-entries' => 'Closing Entries',
     );
 
