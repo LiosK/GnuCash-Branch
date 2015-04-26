@@ -4,7 +4,7 @@ use utf8;
 use strict;
 use warnings;
 
-our $VERSION = 'v0.0.2';
+our $VERSION = 'v0.0.3';
 
 1;
 __END__

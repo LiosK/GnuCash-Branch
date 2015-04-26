@@ -8,6 +8,7 @@ use Time::Piece;
 
 use GnuCash::Branch::Book::XML;
 use GnuCash::Branch::FxRates;
+use GnuCash::Branch::QIF;
 
 =head1 NAME
 
@@ -52,24 +53,17 @@ sub main {
         # collect splits by currency
         my %splits = ();
         for my $sp ($trn->splits) {
-            # set up in accordance with account types
-            my $act = $sp->account;
-            my $sp_crncy  = $act->cmdty_id;
-            my $src_crncy = $sp_crncy;
-            my $src_value = $sp->qty;
-            if (!$act->is_currency) {
-                $sp_crncy  = 'Commodity';
-                $src_crncy = $sp->val_crncy;
-                $src_value = $sp->value;
-            } elsif ($act->is_pl) {
-                $sp_crncy  = $conf{'pr-crncy'};
-            }
-
             # translate foreign currency
-            my $sp_value = $src_value;
-            if ($sp_crncy ne $src_crncy) {
-                $sp_value = $fx_rates->convert($sp_value, $src_crncy, $trn->date->epoch);
-                die $trn->date->ymd . " $src_crncy rate not found" if !defined $sp_value;
+            my $act = $sp->account;
+            my $sp_crncy = $act->cmdty_id;
+            my $sp_value = $sp->qty;
+            if (!$act->is_currency) {
+                $sp_crncy = 'Commodity_' . $trn->currency; # TODO
+                $sp_value = $sp->value;
+            } elsif ($act->is_pl && $sp_crncy ne $conf{'pr-crncy'}) {
+                $sp_value = $fx_rates->convert($sp_value, $sp_crncy, $trn->date->epoch);
+                die $trn->date->ymd . " $sp_crncy rate not found" if !defined $sp_value;
+                $sp_crncy = $conf{'pr-crncy'};
             }
 
             $splits{$sp_crncy} = [] if !exists $splits{$sp_crncy};
@@ -83,52 +77,48 @@ sub main {
 
         # generate currency-by-currency qif
         for my $y (keys %splits) {
-            if ($y eq 'Commodity') {
-                $qif{$y} = [] if !exists $qif{$y};
-                my $txt = '';
+            if ($y =~ /^Commodity_(.+)$/) {
+                $qif{$y} = GnuCash::Branch::QIF->new if !exists $qif{$y};
                 for my $z (@{$splits{$y}}) {
                     die 'Assert investment account has a parent' if $z->{'act'}->is_toplevel;
-                    push $qif{$y}, sprintf(
-                        "!Account\nN%s\n^\n!Type:Invst\nD%s\nN%sX\nY%s\nQ%s\nT%s\nL%s:%s\nM%s\n^\n",
-                        $z->{'act'}->parent->path,
-                        $trn->date->ymd('/'),
-                        ($z->{'qty'} > 0) ? 'Buy' : 'Sell',
-                        $z->{'act'}->name,
-                        abs($z->{'qty'}),
-                        abs($z->{'value'}),
-                        $conf{'transfer-account'},
-                        $conf{'pr-crncy'},
-                        $trn->description,
+                    $qif{$y}->put_account(name => $z->{'act'}->parent->path);
+                    $qif{$y}->put_investment(
+                        date     => $trn->date->ymd('/'),
+                        action   => ($z->{'qty'} > 0) ? 'BuyX' : 'SellX',
+                        security => $z->{'act'}->name,
+                        qty      => abs($z->{'qty'}),
+                        memo     => $trn->description,
+                        transfer => '[' . $conf{'transfer-account'} . ':' . $1 . ']',
+                        amount   => abs($z->{'value'}),
                     );
                 }
             } else {
                 if (!exists $qif{$y}) {
-                    $qif{$y} = [
-                        sprintf("!Account\nN%s:%s\n^\n", $conf{'transfer-account'}, $y),
-                    ];
+                    $qif{$y} = GnuCash::Branch::QIF->new;
+                    $qif{$y}->put_account(name => $conf{'transfer-account'} . ':' . $y);
                 }
 
-                my ($txt, $balance) = ('', 0);
-                for my $z (@{$splits{$y}}) {
-                    $txt .= sprintf "S%s\n\$%s\nE%s\n", $z->{'act'}->path, $z->{'value'}, $z->{'memo'};
-                    $balance -= $z->{'value'};
-                }
-
-                push $qif{$y}, sprintf(
-                    "!Type:Cash\nD%s\nM%s\nT%s\n%s^\n",
-                    $trn->date->ymd('/'),
-                    $trn->description,
-                    $balance,
-                    $txt,
+                $qif{$y}->begin_transaction(
+                    date     => $trn->date->ymd('/'),
+                    number   => $trn->number,
+                    memo     => $trn->description,
                 );
+                for my $z (@{$splits{$y}}) {
+                    $qif{$y}->add_split(
+                        category => $z->{'act'}->path,
+                        memo     => $z->{'memo'},
+                        amount   => $z->{'value'},
+                    );
+                }
+                $qif{$y}->end_transaction;
             }
         }
     }
 
-    # output qif files
+    # write qif files
     for my $x (keys %qif) {
         open my $fh, '>:utf8', $conf{'output-prefix'} . $x . '.qif' or die 'Write mode error';
-        print $fh join('', @{$qif{$x}});
+        print $fh $qif{$x}->to_string;
         close $fh;
     }
 }
@@ -142,7 +132,7 @@ sub get_config {
         'fx-file' => '',
         'output-prefix' => './',
         'pr-crncy' => 'USD',
-        'transfer-account' => 'Equity:Translation Adjustments',
+        'transfer-account' => 'Equity:Transfer',
         'closing-entries' => 'Closing Entries',
     );
 
